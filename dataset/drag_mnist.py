@@ -1,6 +1,8 @@
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.utils.data import Dataset
+from einops import rearrange
 from utils import add_mask
 
 image_file_train = 'train-images.idx3-ubyte'
@@ -23,15 +25,25 @@ class DragMNIST(Dataset):
         return self.sample_size
 
     def __getitem__(self, idx):
-        init = self.sample_init(idx)
+        init = self.sample_init(idx, mask=False)
         img_seq = []
-        ctrl_seq = []
-        for i in range(self.sample_size):
-            img_seq.append(init)
-            ctrl_seq.append(np.zeros((2,)))
+        ctrl_seq = torch.FloatTensor(self.sample_ctrl(length=self.seq_len))
+        self.accumulated_dxdy = torch.zeros(2)
+        for i in range(self.seq_len):
+            self.accumulated_dxdy += ctrl_seq[i] * 2
 
-        img_seq = torch.FloatTensor(img_seq)
-        ctrl_seq = torch.FloatTensor(ctrl_seq)
+            x = (torch.arange(0, 28) / 14 - 1).unsqueeze(1).repeat(1, 28) - self.accumulated_dxdy[0]
+            y = (torch.arange(0, 28) / 14 - 1).unsqueeze(0).repeat(28, 1) - self.accumulated_dxdy[1]
+
+            grid = torch.stack([x, y], dim=-1).unsqueeze(0)
+
+            out = F.grid_sample(init, grid, padding_mode='reflection')
+            out = add_mask(out)
+            out = rearrange(out, '1 1 h w -> 1 h w')
+
+            img_seq.append(out)
+
+        img_seq = torch.stack(img_seq, dim=0) # t, 1, h, w
 
         return img_seq, ctrl_seq
 
@@ -52,4 +64,7 @@ class DragMNIST(Dataset):
         ret = self.images[idx]
         if mask:
             ret = add_mask(ret)
-        return ret
+        return rearrange(torch.tensor(ret), 'h w -> 1 1 h w')
+
+    def sample_ctrl(self, length=1):
+        return np.random.randn(length, 2) * 0.01

@@ -1,9 +1,12 @@
+import time
+
 import cv2
 import numpy as np
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
 from einops import rearrange
+from threading import Thread
 
 from .base import ContentManager
 from dataset.drag_mnist import DragMNIST
@@ -38,6 +41,7 @@ class DragMNISTManager(ContentManager):
         self.resize_w = config.resize_w
         self.resize_h = config.resize_h
         self.use_model = config.use_model
+        self.generate_input = config.generate_input
         self.dataset = DragMNIST(config)
 
         if self.use_model:
@@ -46,6 +50,16 @@ class DragMNISTManager(ContentManager):
             self.model = FakeModel()
 
         self.reset_state()
+
+        if self.generate_input:
+            def _run_loop():
+                while True:
+                    ctrl = self.dataset.sample_ctrl()[0]
+                    self.update_state(ctrl)
+                    time.sleep(1 / 60)
+            self.thread = Thread(target=_run_loop)
+            self.thread.daemon = True
+            self.thread.start()
 
     def init_image(self):
         return self.dataset.sample_init(mask=self.use_model)
@@ -60,12 +74,14 @@ class DragMNISTManager(ContentManager):
 
     # receive data from the api wrapper
     def update_state(self, data):
-        dxdy = np.array(data['dxdy'])
+        if self.generate_input:
+            dxdy = data
+        else:
+            dxdy = np.array(data['dxdy'])
         self.new_xy = self.xy + dxdy
         return
 
     def reset_state(self):
-        img = self.init_image()
-        self.model.init_image = rearrange(torch.tensor(img), 'h w -> 1 1 h w')
+        self.model.init_image = self.init_image()
         self.xy = np.array([0., 0.])
         self.new_xy = np.array([0., 0.])

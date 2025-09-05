@@ -24,7 +24,8 @@ def wrapper(app, content_manager):
         await websocket.accept()
         while True:
             data = await websocket.receive_text()
-            content_manager.update_state(json.loads(data))
+            if not content_manager.generate_input:
+                content_manager.update_state(json.loads(data))
 
     @app.get('/start-video')
     async def video_feed():

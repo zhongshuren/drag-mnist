@@ -165,7 +165,7 @@ class PatchEmbed(nn.Module):
             bias: bool = True,
     ):
         super().__init__()
-        self.img_size, self.grid_size, self.num_patches = self._init_img_size(img_size)
+        self.num_patches = (img_size // patch_size) ** 2
 
         self.image_tokenizer = self._create_tokenizer(
             in_channels=in_chans,

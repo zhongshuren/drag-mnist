@@ -1,1 +1,1 @@
-from shortcut_diffusion_forcing import DiffusionForcingLoss
+from .shortcut_diffusion_forcing import DiffusionForcingLoss

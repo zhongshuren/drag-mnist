@@ -124,8 +124,8 @@ class DiT(nn.Module):
         self.num_classes = num_classes
 
         self.x_embedder = PatchEmbed(input_size, patch_size, in_channels, dim)
-        self.t_embedder = TimestepEmbedder(dim)
-        self.r_embedder = TimestepEmbedder(dim)
+        self.t1_embedder = TimestepEmbedder(dim)
+        self.t2_embedder = TimestepEmbedder(dim)
 
         self.use_cond = num_classes is not None
         self.y_embedder = LabelEmbedder(num_classes, dim) if self.use_cond else None
@@ -164,8 +164,10 @@ class DiT(nn.Module):
             nn.init.normal_(self.y_embedder.embedding.weight, std=0.02)
 
         # Initialize timestep embedding MLP:
-        nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
-        nn.init.normal_(self.t_embedder.mlp[2].weight, std=0.02)
+        nn.init.normal_(self.t1_embedder.mlp[0].weight, std=0.02)
+        nn.init.normal_(self.t1_embedder.mlp[2].weight, std=0.02)
+        nn.init.normal_(self.t2_embedder.mlp[0].weight, std=0.02)
+        nn.init.normal_(self.t2_embedder.mlp[2].weight, std=0.02)
 
         # Zero-out adaLN modulation layers in DiT blocks:
         for block in self.blocks:
@@ -193,16 +195,19 @@ class DiT(nn.Module):
         imgs = x.reshape(shape=(x.shape[0], c, h * p, h * p))
         return imgs
 
-    def forward(self, x, t, r, y=None):
+    def forward(self, x, t1, t2, y=None, h=None, past_x=None):
         """
         Forward pass of DiT.
-        x: (N, C, H, W) tensor of spatial inputs (images or latent representations of images)
-        t: (N,) tensor of diffusion timesteps
-        y: (N,) tensor of class labels
+        x: (N, T, C, H, W) tensor of spatial inputs (images or latent representations of images)
+        t: (N, T,) tensor of diffusion timesteps
+        y: (N, T,) tensor of class labels
         """
+
+        # todo: it first becomes ((N T) C H W), and is encode to ((N T) L D), when we meet a gru, it becomes ((N L) T D), after that, it becomes ((N T) L D) again.
+
         x = self.x_embedder(x) + self.pos_embed  # (N, T, D), where T = H * W / patch_size ** 2
 
-        c_embed = self.t_embedder(t) + self.r_embedder(r) + self.y_embedder(y)
+        c_embed = self.t1_embedder(t1) + self.t2_embedder(t2) + self.y_embedder(y)
 
         for i, block in enumerate(self.blocks):
             x = block(x, c_embed)                      # (N, T, D)

@@ -1,0 +1,7 @@
+epochs: 1
+batch_size: 8
+dim: 512
+lr: 3e-4
+num_eval: 8
+seed: 7
+dataset_dir: dataset/data

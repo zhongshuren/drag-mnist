@@ -2,3 +2,4 @@ use_model: false
 dataset_dir: dataset/data
 resize_w: 512
 resize_h: 512
+generate_input: true

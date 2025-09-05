@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from einops import rearrange
 
 
 class DiffusionForcingLoss(nn.Module):
@@ -14,15 +15,15 @@ class DiffusionForcingLoss(nn.Module):
 
         self.past = lambda x: torch.cat([torch.zeros_like(x[:, :1]), x[:, :-1]], dim=1)
         self.v = lambda x1, t1, t2, c, past_x: self.model(x1, t1, t2, c, past_x=self.past(past_x))[0] - x1
+        self.usq = lambda x: rearrange(x, 'b t c -> b t c 1 1')
 
-    @staticmethod
-    def sample_t(x):
-        B, T, _ = x.shape
-        samples = torch.rand(B, T, 3, device=x.device)
+    def sample_t(self, x):
+        B, T = x.shape[:2]
+        samples = self.usq(torch.rand(B, T, 3, device=x.device))
         samples = 3 * samples ** 2 - 2 * samples ** 3
-        t0 = samples[..., 2:3]
-        t1 = torch.minimum(samples[..., 0:1], samples[..., 1:2])
-        t2 = torch.maximum(samples[..., 0:1], samples[..., 1:2])
+        t0 = samples[:, :, 0:1]
+        t1 = torch.minimum(samples[:, :, 1:2], samples[:, :, 2:3])
+        t2 = torch.maximum(samples[:, :, 1:2], samples[:, :, 2:3])
         tm = (t1 + t2) / 2
         return t0, t1, t2, tm
 

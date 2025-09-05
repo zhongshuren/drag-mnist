@@ -28,8 +28,10 @@ if __name__ == '__main__':
     for epoch in range(configs.epochs):
         p_bar = tqdm(total=len(data), postfix=info, )
         model.train()
-        for i, x in enumerate(data):
+        for i, (x, ctrl_seq) in enumerate(data):
             x = x.to(device)
+            ctrl_seq = ctrl_seq.to(device)
+            print(x.shape, ctrl_seq.shape)
             loss = diffusion_loss(x)
             optimizer.zero_grad()
             loss.backward()
@@ -48,11 +50,11 @@ if __name__ == '__main__':
             past_x = torch.zeros(num_eval, 1, 2).to(device)
             x_seq = []
             for i in range(eval_time_steps):
-                if configs.flow_steps == 1:
-                    e = torch.randn(num_eval, 1, 2)
-                    x, h = model(e, h=past_h, past_x=past_x)
+                e = torch.randn(num_eval, 1, 2)
+                x, h = model(e, h=past_h, past_x=past_x)
                 x_seq.append(x)
                 past_x = x
                 past_h = h
 
         scheduler.step()
+
