@@ -1,0 +1,29 @@
+body {
+  margin: 0;
+  padding: 0;
+}
+
+.flex-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+}
+
+.my_container {
+  width: 1024px;
+  margin: 0 auto;
+}
+
+.camera {
+  width: 512px;
+  height: 512px;
+}
+
+#video-output {
+  border: none;
+  width: 512px;
+  height: 512px;
+  border-radius: 5px;
+  box-shadow: rgba(0, 0, 0, 0.24) 0 3px 8px;
+}

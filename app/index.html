@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Drag MNIST</title>
+    <link rel="stylesheet" type="text/css" href="/static/custom_css.css">
+</head>
+<body>
+    <div class="flex-container">
+        <h1 style='text-align: center;position: fixed;top:50px'>
+            Drag MNIST
+        </h1>
+        <div id="video-div">
+            <iframe id="video-output" src="http://localhost:8000/start-video"></iframe>
+        </div>
+        <div id="camera-canvas" style="width: 512px;height: 512px"></div>
+    </div>
+    <script>
+        const socket = new WebSocket('ws://localhost:8000/ws')
+        // setInterval(function (){
+        //     socket.send(`{
+        //         "dxdy": [${[0.001, 0.001]}]
+        //     }`)
+        // }, 10)
+
+        const canvas = document.getElementById('camera-canvas');
+        const canvas_width = 512;
+        const canvas_height = 512;
+
+        let isDragging = false;
+        let lastX = null;
+        let lastY = null;
+
+        canvas.addEventListener('mousedown', (e) => {
+          isDragging = true;
+          lastX = e.clientX;
+          lastY = e.clientY;
+        });
+
+        canvas.addEventListener('mouseup', () => {
+          isDragging = false;
+          lastX = null;
+          lastY = null;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+          isDragging = false;
+          lastX = null;
+          lastY = null;
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+          if (!isDragging) return;
+
+          const deltaX = e.clientX - lastX;
+          const deltaY = e.clientY - lastY;
+
+          socket.send(`{
+                "dxdy": [${[deltaY / canvas_width, deltaX / canvas_height]}]
+            }`)
+
+          lastX = e.clientX;
+          lastY = e.clientY;
+        });
+    </script>
+</body>
+</html>
