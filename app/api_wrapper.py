@@ -28,8 +28,12 @@ def wrapper(app, content_manager):
 
     @app.get('/start-video')
     async def video_feed():
-        print('hello')
         return StreamingResponse(content_manager.get_frame(),
                                  media_type='multipart/x-mixed-replace; boundary=frame')
+
+    @app.get('/reset')
+    async def reset_feed():
+        content_manager.reset_state()
+        return {}
 
     return app

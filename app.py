@@ -8,10 +8,10 @@ from app.content import DragMNISTManager
 import os
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
-config = OmegaConf.load('config/config_app.yaml')
+configs = OmegaConf.load('config/config_app.yaml')
 
 app = FastAPI()
-manager = DragMNISTManager(config)
+manager = DragMNISTManager(configs)
 app = wrapper(app, content_manager=manager)
 
 if __name__ == '__main__':

@@ -10,10 +10,11 @@ from dataset.drag_mnist import DragMNIST
 from utils import add_mask
 
 
+# used to test the app interface
 class FakeModel(nn.Module):
-    def __init__(self, init_image):
+    def __init__(self):
         super(FakeModel, self).__init__()
-        self.init_image = rearrange(torch.tensor(init_image), 'h w -> 1 1 h w')
+        self.init_image = torch.zeros(28, 28)
         self.accumulated_dxdy = torch.zeros(2)
 
     def forward(self, dxdy):
@@ -38,15 +39,13 @@ class DragMNISTManager(ContentManager):
         self.resize_h = config.resize_h
         self.use_model = config.use_model
         self.dataset = DragMNIST(config)
-        self.image = self.init_image()
 
         if self.use_model:
             self.model = None
         else:
-            self.model = FakeModel(self.image)
+            self.model = FakeModel()
 
-        self.xy = np.array([0., 0.])
-        self.new_xy = np.array([0., 0.])
+        self.reset_state()
 
     def init_image(self):
         return self.dataset.sample_init(mask=self.use_model)
@@ -64,3 +63,9 @@ class DragMNISTManager(ContentManager):
         dxdy = np.array(data['dxdy'])
         self.new_xy = self.xy + dxdy
         return
+
+    def reset_state(self):
+        img = self.init_image()
+        self.model.init_image = rearrange(torch.tensor(img), 'h w -> 1 1 h w')
+        self.xy = np.array([0., 0.])
+        self.new_xy = np.array([0., 0.])

@@ -11,6 +11,9 @@ class ContentManager:
     def update_state(self, data):
         raise NotImplementedError
 
+    def reset_state(self):
+        raise NotImplementedError
+
     def stop(self):
         self.iterating = False
 

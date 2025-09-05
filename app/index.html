@@ -10,10 +10,13 @@
         <h1 style='text-align: center;position: fixed;top:50px'>
             Drag MNIST
         </h1>
-        <div id="video-div">
-            <iframe id="video-output" src="http://localhost:8000/start-video"></iframe>
+        <div style="position: relative;width: 512px;height:512px;user-select: none">
+            <div id="video-div" style="position: absolute;left: 0;top: 0">
+                <iframe id="video-output" src="http://localhost:8000/start-video"></iframe>
+            </div>
+            <div id="camera-canvas" style="width: 512px;height: 512px; position: absolute; z-index: 10;left: 0;top: 0"></div>
+            <button onclick="reset()" style="position: absolute; top:512px; width: 512px">reset</button>
         </div>
-        <div id="camera-canvas" style="width: 512px;height: 512px"></div>
     </div>
     <script>
         const socket = new WebSocket('ws://localhost:8000/ws')
@@ -37,19 +40,13 @@
           lastY = e.clientY;
         });
 
-        canvas.addEventListener('mouseup', () => {
+        document.addEventListener('mouseup', () => {
           isDragging = false;
           lastX = null;
           lastY = null;
         });
 
-        canvas.addEventListener('mouseleave', () => {
-          isDragging = false;
-          lastX = null;
-          lastY = null;
-        });
-
-        canvas.addEventListener('mousemove', (e) => {
+        document.addEventListener('mousemove', (e) => {
           if (!isDragging) return;
 
           const deltaX = e.clientX - lastX;
@@ -62,6 +59,13 @@
           lastX = e.clientX;
           lastY = e.clientY;
         });
+
+        function reset(){
+            fetch('http://localhost:8000/reset')
+                .then(response => response.json())
+                .then(data => console.log(data))
+                .catch(error => console.error('Error:', error));
+        }
     </script>
 </body>
 </html>
