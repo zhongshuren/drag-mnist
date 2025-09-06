@@ -5,11 +5,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import math
+from einops import rearrange
 from .layers import QK_Norm_SelfAttention, Mlp, PatchEmbed
 
 
 def modulate(x, scale, shift):
-    return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
+    return x * (1 + scale) + shift
 
 
 class TimestepEmbedder(nn.Module):
@@ -69,6 +70,7 @@ class DiTBlock(nn.Module):
         self.attn = QK_Norm_SelfAttention(dim, head_dim=dim // num_heads, qkv_bias=True, use_qk_norm=True)
         self.attn.fused_attn = False
         self.norm2 = RMSNorm(dim)
+        self.gru = nn.GRU(dim, dim, batch_first=True)
         mlp_dim = int(dim * mlp_ratio)
         approx_gelu = lambda: nn.GELU(approximate="tanh")
         self.mlp = Mlp(
@@ -76,17 +78,23 @@ class DiTBlock(nn.Module):
         )
         self.adaLN_modulation = nn.Sequential(nn.SiLU(), nn.Linear(dim, 6 * dim))
 
-    def forward(self, x, c):
+    def forward(self, x, c, h=None, batch_size=1):
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
             self.adaLN_modulation(c).chunk(6, dim=-1)
         )
-        x = x + gate_msa.unsqueeze(1) * self.attn(
+        x = x + gate_msa * self.attn(
             modulate(self.norm1(x), scale_msa, shift_msa)
         )
-        x = x + gate_mlp.unsqueeze(1) * self.mlp(
+        x = x + gate_mlp * self.mlp(
             modulate(self.norm2(x), scale_mlp, shift_mlp)
         )
-        return x
+
+        x = rearrange(x, '(b l) t d -> (b t) l d', b=batch_size)
+        y, h = self.gru(x, h)
+        x = x + y
+        x = rearrange(x, '(b t) l d -> (b l) t d', b=batch_size)
+
+        return x, h
 
 
 class FinalLayer(nn.Module):
@@ -122,8 +130,10 @@ class DiT(nn.Module):
         self.patch_size = patch_size
         self.num_heads = num_heads
         self.num_classes = num_classes
+        self.depth = depth
 
         self.x_embedder = PatchEmbed(input_size, patch_size, in_channels, dim)
+        self.past_x_embedder = PatchEmbed(input_size, patch_size, in_channels, dim)
         self.t1_embedder = TimestepEmbedder(dim)
         self.t2_embedder = TimestepEmbedder(dim)
 
@@ -183,10 +193,10 @@ class DiT(nn.Module):
     def unpatchify(self, x):
         """
         x: (N, T, patch_size**2 * C)
-        imgs: (N, H, W, C)
+        imgs: (N, C, H, W)
         """
         c = self.out_channels
-        p = self.x_embedder.patch_size[0]
+        p = self.x_embedder.patch_size
         h = w = int(x.shape[1] ** 0.5)
         assert h * w == x.shape[1]
 
@@ -203,18 +213,29 @@ class DiT(nn.Module):
         y: (N, T,) tensor of class labels
         """
 
-        # todo: it first becomes ((N T) C H W), and is encode to ((N T) L D), when we meet a gru, it becomes ((N L) T D), after that, it becomes ((N T) L D) again.
+        N = x.shape[0]
+        x = rearrange(x, 'n l c h w -> (n l) c h w')
+        past_x = rearrange(past_x, 'n l c h w -> (n l) c h w')
 
-        x = self.x_embedder(x) + self.pos_embed  # (N, T, D), where T = H * W / patch_size ** 2
+        x = self.x_embedder(x) + self.pos_embed + self.past_x_embedder(past_x)  # (N, T, D), where T = H * W / patch_size ** 2
 
-        c_embed = self.t1_embedder(t1) + self.t2_embedder(t2) + self.y_embedder(y)
+        c_embed = self.t1_embedder(t1) + self.t2_embedder(t2)
+
+        c_embed = rearrange(c_embed, 'n 1 l d -> (n l) 1 d')
+
+        if y is not None:
+            c_embed += self.y_embedder(y)
+
+        if h is None:
+            h = [None] * self.depth
 
         for i, block in enumerate(self.blocks):
-            x = block(x, c_embed)                      # (N, T, D)
+            x, h[i] = block(x, c_embed, h[i], batch_size=N)                      # (N, T, D)
 
         x = self.final_layer(x, c_embed)                # (N, T, patch_size ** 2 * out_channels)
         x = self.unpatchify(x)                   # (N, out_channels, H, W)
-        return x
+        x = rearrange(x, '(n l) c h w -> n l c h w', n=N)
+        return x, h
 
 
 # Positional embedding from:

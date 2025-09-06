@@ -14,8 +14,11 @@ accelerator = Accelerator()
 device = accelerator.device
 torch.manual_seed(configs.seed)
 
-data = DataLoader(DragMNIST(configs, seq_len=64), batch_size=configs.batch_size, shuffle=True)
-model = DiT(dim=configs.dim)
+data = DataLoader(DragMNIST(configs, seq_len=4), batch_size=configs.batch_size, shuffle=True)
+model = DiT(dim=configs.dim,
+            in_channels=configs.in_channels,
+            input_size=configs.input_size,
+            depth=configs.depth,)
 diffusion_loss = DiffusionForcingLoss(model)
 
 optimizer = AdamW(model.parameters(), lr=configs.lr)
@@ -31,7 +34,6 @@ if __name__ == '__main__':
         for i, (x, ctrl_seq) in enumerate(data):
             x = x.to(device)
             ctrl_seq = ctrl_seq.to(device)
-            print(x.shape, ctrl_seq.shape)
             loss = diffusion_loss(x)
             optimizer.zero_grad()
             loss.backward()
@@ -46,7 +48,7 @@ if __name__ == '__main__':
         eval_time_steps = 256
         model.eval()
         with torch.no_grad():
-            past_h = torch.zeros(2, num_eval, configs.dim).to(device)
+            past_h = torch.zeros(configs.depth, num_eval, configs.dim).to(device)
             past_x = torch.zeros(num_eval, 1, 2).to(device)
             x_seq = []
             for i in range(eval_time_steps):

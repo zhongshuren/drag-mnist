@@ -19,7 +19,7 @@ class DiffusionForcingLoss(nn.Module):
 
     def sample_t(self, x):
         B, T = x.shape[:2]
-        samples = self.usq(torch.rand(B, T, 3, device=x.device))
+        samples = torch.rand(B, T, 3, device=x.device)
         samples = 3 * samples ** 2 - 2 * samples ** 3
         t0 = samples[:, :, 0:1]
         t1 = torch.minimum(samples[:, :, 1:2], samples[:, :, 2:3])
@@ -30,7 +30,7 @@ class DiffusionForcingLoss(nn.Module):
     def forward(self, x, c=None):
         t0, t1, t2, tm = self.sample_t(x)
         e = torch.randn_like(x)
-        z0, z1, z2 = torch.lerp(e, x, t0), torch.lerp(e, x, t1), torch.lerp(e, x, t2)
+        z0, z1, z2 = torch.lerp(e, x, self.usq(t0)), torch.lerp(e, x, self.usq(t0)), torch.lerp(e, x, self.usq(t2))
         v_tgt = x - e
 
         if self.cfg and c is not None:
@@ -43,7 +43,7 @@ class DiffusionForcingLoss(nn.Module):
         v_t0 = self.v(z0, t0, t0, c, z2)
         v_t1t2 = self.v(z1, t1, t2, c, z2)
         v_t1tm = self.v(z1, t1, tm, c, z2)
-        v_tmt2 = self.v(z1 + v_t1tm * (tm - t1), tm, t2, c, z2)
+        v_tmt2 = self.v(z1 + v_t1tm * self.usq(tm - t1), tm, t2, c, z2)
         v_t1tmt2 = v_t1tm + v_tmt2
 
         loss1 = F.mse_loss(v_t0, v_tgt) # Flow Matching loss

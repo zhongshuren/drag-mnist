@@ -1,7 +1,10 @@
 epochs: 1
-batch_size: 8
-dim: 512
+batch_size: 2
+dim: 384
 lr: 3e-4
 num_eval: 8
 seed: 7
 dataset_dir: dataset/data
+in_channels: 1
+input_size: 28
+depth: 4
