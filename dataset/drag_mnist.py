@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -13,11 +14,12 @@ class DragMNIST(Dataset):
     def __init__(self,
                  configs,
                  mode: str='test',
-                 seq_len: int=64,):
+                 seq_len: int=64,
+                 num_samples: int=10,):
         self.configs = configs
         image_file = image_file_train if mode == 'train' else image_file_test
-        self.data_file = f'{self.configs.dataset_dir}/{image_file}'
-        self.sample_size = 60000 if mode == 'train' else 100
+        self.data_file = os.path.join(self.configs.dataset.dir, image_file)
+        self.sample_size = num_samples if mode == 'train' else 100
         self.seq_len = seq_len
         self.images = self._read_data()
 
@@ -25,25 +27,26 @@ class DragMNIST(Dataset):
         return self.sample_size
 
     def __getitem__(self, idx):
-        init = self.sample_init(idx, mask=False)
-        img_seq = []
-        ctrl_seq = torch.FloatTensor(self.sample_ctrl(length=self.seq_len))
-        self.accumulated_dxdy = torch.zeros(2)
-        for i in range(self.seq_len):
-            self.accumulated_dxdy += ctrl_seq[i] * 2
+        with torch.no_grad():
+            init = self.sample_init(idx, mask=False)
+            img_seq = []
+            ctrl_seq = self.sample_ctrl(length=self.seq_len)
+            self.accumulated_dxdy = torch.zeros(2)
+            for i in range(self.seq_len):
+                self.accumulated_dxdy += ctrl_seq[i] * 2
 
-            x = (torch.arange(0, 28) / 14 - 1).unsqueeze(1).repeat(1, 28) - self.accumulated_dxdy[0]
-            y = (torch.arange(0, 28) / 14 - 1).unsqueeze(0).repeat(28, 1) - self.accumulated_dxdy[1]
+                x = (torch.arange(0, 28) / 14 - 1).unsqueeze(1).repeat(1, 28) - self.accumulated_dxdy[0]
+                y = (torch.arange(0, 28) / 14 - 1).unsqueeze(0).repeat(28, 1) - self.accumulated_dxdy[1]
 
-            grid = torch.stack([x, y], dim=-1).unsqueeze(0)
+                grid = torch.stack([x, y], dim=-1).unsqueeze(0)
 
-            out = F.grid_sample(init, grid, padding_mode='reflection')
-            out = add_mask(out)
-            out = rearrange(out, '1 1 h w -> 1 h w')
+                out = F.grid_sample(init, grid, padding_mode='reflection')
+                out = add_mask(out)
+                out = rearrange(out, '1 1 h w -> 1 h w')
 
-            img_seq.append(out)
+                img_seq.append(out)
 
-        img_seq = torch.stack(img_seq, dim=0) # t, 1, h, w
+            img_seq = torch.stack(img_seq, dim=0) # t, 1, h, w
 
         return img_seq, ctrl_seq
 
@@ -59,12 +62,15 @@ class DragMNIST(Dataset):
         return image
 
     def sample_init(self, idx=None, mask=True):
-        if idx is None:
-            idx = np.random.choice(self.sample_size, 1).item()
-        ret = self.images[idx]
-        if mask:
-            ret = add_mask(ret)
-        return rearrange(torch.tensor(ret), 'h w -> 1 1 h w')
+        with torch.no_grad():
+            if idx is None:
+                idx = np.random.choice(self.sample_size, 1).item()
+            ret = self.images[idx]
+            ret = rearrange(torch.tensor(ret), 'h w -> 1 1 h w')
+            if mask:
+                ret = add_mask(ret)
+            return ret
 
     def sample_ctrl(self, length=1):
-        return np.random.randn(length, 2) * 0.01
+        with torch.no_grad():
+            return torch.FloatTensor(np.random.randn(length, 2) * 0.1)

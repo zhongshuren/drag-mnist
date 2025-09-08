@@ -4,6 +4,7 @@ from einops import rearrange
 from einops.layers.torch import Rearrange
 from functools import partial
 from typing import Callable, Dict, List, Optional, Tuple, Union
+import math
 
 attention = torch.nn.functional.scaled_dot_product_attention
 
@@ -199,3 +200,52 @@ class PatchEmbed(nn.Module):
         x = self.image_tokenizer(x)# input: b, c, h, w
         x = self.norm(x)
         return x  # output: b, t, d
+
+class TimestepEmbedder(nn.Module):
+    def __init__(self, dim, nfreq=256):
+        super().__init__()
+        self.mlp = nn.Sequential(nn.Linear(nfreq, dim), nn.SiLU(), nn.Linear(dim, dim))
+        self.nfreq = nfreq
+
+    @staticmethod
+    def timestep_embedding(t, dim, max_period=10000):
+        half_dim = dim // 2
+        freqs = torch.exp(
+            -math.log(max_period)
+            * torch.arange(start=0, end=half_dim, dtype=torch.float32)
+            / half_dim
+        ).to(device=t.device)
+        args = t[:, None].float() * freqs[None]
+        embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
+        if dim % 2:
+            embedding = torch.cat(
+                [embedding, torch.zeros_like(embedding[:, :1])], dim=-1
+            )
+        return embedding
+
+    def forward(self, t):
+        t = t*1000
+        t_freq = self.timestep_embedding(t, self.nfreq)
+        t_emb = self.mlp(t_freq)
+        return t_emb
+
+
+class LabelEmbedder(nn.Module):
+    def __init__(self, num_classes, dim):
+        super().__init__()
+        self.embedding = nn.Embedding(num_classes + 1, dim)
+        self.num_classes = num_classes
+
+    def forward(self, labels):
+        embeddings = self.embedding(labels)
+        return embeddings
+
+
+class ControlEmbedder(nn.Module):
+    def __init__(self, input_size, dim):
+        super().__init__()
+        self.mlp = nn.Sequential(nn.Linear(input_size, dim), nn.SiLU(), nn.Linear(dim, dim))
+
+    def forward(self, ctrl):
+        c_emb = self.mlp(ctrl).unsqueeze(1)
+        return c_emb

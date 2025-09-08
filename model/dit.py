@@ -1,66 +1,16 @@
 # modified from https://github.com/haidog-yaqub/MeanFlow/blob/main/models/dit.py
-
+import os
 import torch
 import torch.nn as nn
+import traceback
 import torch.nn.functional as F
 import numpy as np
-import math
 from einops import rearrange
-from .layers import QK_Norm_SelfAttention, Mlp, PatchEmbed
+from .layers import QK_Norm_SelfAttention, Mlp, PatchEmbed, TimestepEmbedder, RMSNorm, ControlEmbedder
 
 
 def modulate(x, scale, shift):
     return x * (1 + scale) + shift
-
-
-class TimestepEmbedder(nn.Module):
-    def __init__(self, dim, nfreq=256):
-        super().__init__()
-        self.mlp = nn.Sequential(nn.Linear(nfreq, dim), nn.SiLU(), nn.Linear(dim, dim))
-        self.nfreq = nfreq
-
-    @staticmethod
-    def timestep_embedding(t, dim, max_period=10000):
-        half_dim = dim // 2
-        freqs = torch.exp(
-            -math.log(max_period)
-            * torch.arange(start=0, end=half_dim, dtype=torch.float32)
-            / half_dim
-        ).to(device=t.device)
-        args = t[:, None].float() * freqs[None]
-        embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
-        if dim % 2:
-            embedding = torch.cat(
-                [embedding, torch.zeros_like(embedding[:, :1])], dim=-1
-            )
-        return embedding
-
-    def forward(self, t):
-        t = t*1000
-        t_freq = self.timestep_embedding(t, self.nfreq)
-        t_emb = self.mlp(t_freq)
-        return t_emb
-
-
-class LabelEmbedder(nn.Module):
-    def __init__(self, num_classes, dim):
-        super().__init__()
-        self.embedding = nn.Embedding(num_classes + 1, dim)
-        self.num_classes = num_classes
-
-    def forward(self, labels):
-        embeddings = self.embedding(labels)
-        return embeddings
-
-
-class RMSNorm(nn.Module):
-    def __init__(self, dim):
-        super().__init__()
-        self.scale = dim**0.5
-        self.g = nn.Parameter(torch.ones(1))
-
-    def forward(self, x):
-        return F.normalize(x, dim=-1) * self.scale * self.g
 
 
 class DiTBlock(nn.Module):
@@ -89,10 +39,10 @@ class DiTBlock(nn.Module):
             modulate(self.norm2(x), scale_mlp, shift_mlp)
         )
 
-        x = rearrange(x, '(b l) t d -> (b t) l d', b=batch_size)
-        y, h = self.gru(x, h)
+        x_ = rearrange(x.sum(1), '(b l) d -> b l d', b=batch_size)
+        y, h = self.gru(x_, h)
+        y = rearrange(y, 'b l d -> (b l) 1 d', b=batch_size)
         x = x + y
-        x = rearrange(x, '(b t) l d -> (b l) t d', b=batch_size)
 
         return x, h
 
@@ -122,14 +72,14 @@ class DiT(nn.Module):
         num_heads=16,
         mlp_ratio=4.0,
         num_register_tokens=4,
-        num_classes=1000,
+        ctrl_dim=2,
     ):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = in_channels
         self.patch_size = patch_size
         self.num_heads = num_heads
-        self.num_classes = num_classes
+        self.ctrl_dim = ctrl_dim
         self.depth = depth
 
         self.x_embedder = PatchEmbed(input_size, patch_size, in_channels, dim)
@@ -137,8 +87,7 @@ class DiT(nn.Module):
         self.t1_embedder = TimestepEmbedder(dim)
         self.t2_embedder = TimestepEmbedder(dim)
 
-        self.use_cond = num_classes is not None
-        self.y_embedder = LabelEmbedder(num_classes, dim) if self.use_cond else None
+        self.c_embedder = ControlEmbedder(ctrl_dim, dim)
 
         num_patches = self.x_embedder.num_patches
         # Will use fixed sin-cos embedding:
@@ -169,9 +118,9 @@ class DiT(nn.Module):
         nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
         nn.init.constant_(self.x_embedder.proj.bias, 0)
 
-        # Initialize label embedding table:
-        if self.y_embedder is not None:
-            nn.init.normal_(self.y_embedder.embedding.weight, std=0.02)
+        # Initialize ctrl embedding MLP:
+        nn.init.normal_(self.c_embedder.mlp[0].weight, std=0.02)
+        nn.init.normal_(self.c_embedder.mlp[2].weight, std=0.02)
 
         # Initialize timestep embedding MLP:
         nn.init.normal_(self.t1_embedder.mlp[0].weight, std=0.02)
@@ -205,7 +154,7 @@ class DiT(nn.Module):
         imgs = x.reshape(shape=(x.shape[0], c, h * p, h * p))
         return imgs
 
-    def forward(self, x, t1, t2, y=None, h=None, past_x=None):
+    def forward(self, x, t1=None, t2=None, c=None, h=None, past_x=None):
         """
         Forward pass of DiT.
         x: (N, T, C, H, W) tensor of spatial inputs (images or latent representations of images)
@@ -219,12 +168,11 @@ class DiT(nn.Module):
 
         x = self.x_embedder(x) + self.pos_embed + self.past_x_embedder(past_x)  # (N, T, D), where T = H * W / patch_size ** 2
 
-        c_embed = self.t1_embedder(t1) + self.t2_embedder(t2)
-
+        if t1 is None and t2 is None:
+            t1 = torch.zeros(N, 1, 1, device=x.device)
+            t2 = torch.ones(N, 1, 1, device=x.device)
+        c_embed = self.t1_embedder(t1) + self.t2_embedder(t2) + self.c_embedder(c)
         c_embed = rearrange(c_embed, 'n 1 l d -> (n l) 1 d')
-
-        if y is not None:
-            c_embed += self.y_embedder(y)
 
         if h is None:
             h = [None] * self.depth
@@ -236,6 +184,24 @@ class DiT(nn.Module):
         x = self.unpatchify(x)                   # (N, out_channels, H, W)
         x = rearrange(x, '(n l) c h w -> n l c h w', n=N)
         return x, h
+
+    @torch.no_grad()
+    def load_ckpt(self, load_path):
+        if os.path.isdir(load_path):
+            ckpt_names = [file_name for file_name in os.listdir(load_path) if file_name.endswith(".pt")]
+            ckpt_names = sorted(ckpt_names, key=lambda x: x)
+            ckpt_paths = [os.path.join(load_path, ckpt_name) for ckpt_name in ckpt_names]
+        else:
+            ckpt_paths = [load_path]
+        try:
+            checkpoint = torch.load(ckpt_paths[-1], map_location="cpu", weights_only=True)
+        except:
+            traceback.print_exc()
+            print(f"Failed to load {ckpt_paths[-1]}")
+            return None
+
+        self.load_state_dict(checkpoint["model"], strict=False)
+        return 0
 
 
 # Positional embedding from:

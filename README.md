@@ -25,6 +25,12 @@ To make this possible, we implement the recent SOTA method from one-step diffusi
 
 It turns out 1-NFE diffusion has great potential to be a stable interactive generative model.
 
+## Installation
+```shell
+conda create -n drag-mnist python=3.10
+pip install -r requirements.txt
+```
+
 ## Training
 ```shell
 python train.py

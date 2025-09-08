@@ -1,10 +1,23 @@
-epochs: 1
-batch_size: 2
-dim: 384
-lr: 3e-4
-num_eval: 8
 seed: 7
-dataset_dir: dataset/data
-in_channels: 1
-input_size: 28
-depth: 4
+
+dataset:
+  dir: dataset/data
+  mode: train
+  seq_len: 8
+  num_samples: 60000
+
+training:
+  epochs: 5
+  batch_size: 8
+  lr: 3e-4
+  num_eval: 8
+  eval_seq_len: 256
+  checkpoint_every: 5
+  ckpt_dir: checkpoints/
+
+model:
+  in_channels: 1
+  input_size: 28
+  depth: 12
+  dim: 256
+  patch_size: 4

@@ -19,7 +19,7 @@
         </div>
     </div>
     <script>
-        const socket = new WebSocket('ws://localhost:8000/ws')
+        const socket = new WebSocket('ws://127.0.0.1:8000/ws')
         // setInterval(function (){
         //     socket.send(`{
         //         "dxdy": [${[0.001, 0.001]}]
@@ -61,7 +61,7 @@
         });
 
         function reset(){
-            fetch('http://localhost:8000/reset')
+            fetch('http://127.0.0.1:8000/reset')
                 .then(response => response.json())
                 .then(data => console.log(data))
                 .catch(error => console.error('Error:', error));
